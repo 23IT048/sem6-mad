@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import '../utils/app_colors.dart';
+import '../services/storage_service.dart';
 import 'progress_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -11,226 +12,314 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with RouteAware, SingleTickerProviderStateMixin {
   File? _selectedImage;
+  String? _originalImagePath;
   final ImagePicker _picker = ImagePicker();
+  bool _isLoading = false;
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 400),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeOut));
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute && route.settings.name == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _selectedImage = null;
+            _originalImagePath = null;
+          });
+          _animationController.forward(from: 0);
+        }
+      });
+    }
+  }
 
   Future<void> _pickImage(ImageSource source) async {
+    setState(() => _isLoading = true);
+    
     try {
-      final XFile? image = await _picker.pickImage(source: source);
-      if (image != null) {
-        setState(() {
-          _selectedImage = File(image.path);
-        });
+      final XFile? pickedFile = await _picker.pickImage(source: source);
+      
+      if (pickedFile != null) {
+        try {
+          final originalPath = await StorageService.copyOriginalImage(pickedFile.path);
+          
+          setState(() {
+            _selectedImage = File(originalPath);
+            _originalImagePath = originalPath;
+            _isLoading = false;
+          });
+        } catch (e) {
+          setState(() => _isLoading = false);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Error saving image: $e'),
+                backgroundColor: Colors.red,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        }
+      } else {
+        setState(() => _isLoading = false);
       }
     } catch (e) {
+      setState(() => _isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking image: $e')),
+          SnackBar(
+            content: Text('Error picking image: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
         );
       }
     }
   }
 
-  void _showImageSourceDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Select Image Source'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.camera_alt),
-              title: const Text('Camera'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library),
-              title: const Text('Gallery'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.gallery);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _startCompression() {
-    if (_selectedImage != null) {
+    if (_selectedImage != null && _originalImagePath != null) {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ProgressScreen(inputImage: _selectedImage!),
+          builder: (context) => ProgressScreen(
+            imagePath: _originalImagePath!,
+          ),
         ),
-      );
+      ).then((shouldClearImage) {
+        if (shouldClearImage == true && mounted) {
+          setState(() {
+            _selectedImage = null;
+            _originalImagePath = null;
+          });
+        }
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('JPEG-Lite Visualizer', style: TextStyle(color: Colors.white)),
-        backgroundColor: AppColors.primaryBlue,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Header Section
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Icon(Icons.compress, size: 60, color: AppColors.primaryBlue),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Welcome to JPEG-Lite Compression',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Learn how JPEG compression works with interactive visualization',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Image Preview Section
-            Container(
-              height: 250,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: _selectedImage != null
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Image.file(_selectedImage!, fit: BoxFit.cover),
-                    )
-                  : Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.image_outlined, size: 80, color: Colors.grey.shade400),
-                          const SizedBox(height: 12),
-                          Text(
-                            'No image selected',
-                            style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
-                          ),
-                        ],
-                      ),
+    return Container(
+      decoration: const BoxDecoration(gradient: AppColors.backgroundGradient),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text('JPEG-Lite Compressor', 
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 20, color: Colors.white)),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
+          ),
+          elevation: 0,
+        ),
+        body: _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : FadeTransition(
+                opacity: _fadeAnimation,
+                child: SlideTransition(
+                  position: _slideAnimation,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Column(
+                      children: [
+                        _buildHeaderCard(),
+                        const SizedBox(height: 24),
+                        _buildImagePreview(),
+                        const SizedBox(height: 32),
+                        _buildActionButtons(),
+                      ],
                     ),
-            ),
-            const SizedBox(height: 20),
-
-            // Select Image Button
-            ElevatedButton.icon(
-              onPressed: _showImageSourceDialog,
-              icon: const Icon(Icons.add_photo_alternate),
-              label: Text(_selectedImage == null ? 'Select Image' : 'Change Image'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryBlue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+      ),
+    );
+  }
 
-            // Start Compression Button
-            ElevatedButton.icon(
-              onPressed: _selectedImage != null ? _startCompression : null,
-              icon: const Icon(Icons.play_arrow),
-              label: const Text('Start Compression'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.accentGreen,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                disabledBackgroundColor: Colors.grey.shade300,
+  Widget _buildHeaderCard() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: AppColors.cardShadow,
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.accentBlue.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.compress, size: 48, color: AppColors.accentBlue),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Welcome to JPEG-Lite',
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: AppColors.primaryNavy),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Learn how JPEG compression works with interactive visualization',
+            style: TextStyle(fontSize: 15, color: AppColors.mutedGray, height: 1.4),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImagePreview() {
+    return Container(
+      height: 240,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        gradient: _selectedImage == null ? AppColors.backgroundGradient : null,
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: AppColors.borderGray.withValues(alpha: 0.5), width: 2),
+        boxShadow: _selectedImage != null ? AppColors.cardShadow : null,
+        color: Colors.white,
+      ),
+      child: _selectedImage == null
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.image_outlined, size: 72, color: AppColors.mutedGray.withValues(alpha: 0.4)),
+                  const SizedBox(height: 16),
+                  Text('No image selected', 
+                    style: TextStyle(fontSize: 16, color: AppColors.mutedGray, fontWeight: FontWeight.w500)),
+                ],
               ),
+            )
+          : ClipRRect(
+              borderRadius: BorderRadius.circular(32),
+              child: Image.file(_selectedImage!, fit: BoxFit.cover),
             ),
-            const SizedBox(height: 24),
+    );
+  }
 
-            // Info Cards
-            _buildInfoCard(
-              'Step-by-Step Visualization',
-              'Watch each compression phase in action',
-              Icons.visibility,
-            ),
-            const SizedBox(height: 12),
-            _buildInfoCard(
-              'Huffman Coding Animation',
-              'See how data is encoded efficiently',
-              Icons.account_tree,
-            ),
-            const SizedBox(height: 12),
-            _buildInfoCard(
-              'Compare Results',
-              'View original vs compressed images side by side',
-              Icons.compare,
-            ),
+  Widget _buildActionButtons() {
+    return Column(
+      children: _selectedImage == null
+          ? [
+              _buildModernButton(
+                label: 'Take Photo',
+                icon: Icons.camera_alt_rounded,
+                gradient: AppColors.primaryGradient,
+                onPressed: () => _pickImage(ImageSource.camera),
+              ),
+              const SizedBox(height: 16),
+              _buildModernButton(
+                label: 'Choose from Gallery',
+                icon: Icons.photo_library_rounded,
+                gradient: AppColors.accentGradient,
+                onPressed: () => _pickImage(ImageSource.gallery),
+              ),
+            ]
+          : [
+              _buildModernButton(
+                label: 'Change Image',
+                icon: Icons.swap_horiz_rounded,
+                gradient: AppColors.accentGradient,
+                onPressed: () => _pickImage(ImageSource.gallery),
+              ),
+              const SizedBox(height: 16),
+              _buildModernButton(
+                label: 'Start Compression',
+                icon: Icons.compress,
+                gradient: AppColors.successGradient,
+                onPressed: _startCompression,
+              ),
+            ],
+    );
+  }
+
+  Widget _buildModernButton({
+    required String label,
+    required IconData icon,
+    required LinearGradient gradient,
+    required VoidCallback onPressed,
+  }) {
+    return _AnimatedButton(
+      onPressed: onPressed,
+      child: Container(
+        width: double.infinity,
+        height: 60,
+        decoration: BoxDecoration(
+          gradient: gradient,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: AppColors.buttonShadow,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+            Text(label, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white)),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildInfoCard(String title, String description, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.lightBackground,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: AppColors.primaryBlue, size: 28),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(description, style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
-              ],
-            ),
-          ),
-        ],
+class _AnimatedButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onPressed;
+
+  const _AnimatedButton({required this.child, required this.onPressed});
+
+  @override
+  State<_AnimatedButton> createState() => _AnimatedButtonState();
+}
+
+class _AnimatedButtonState extends State<_AnimatedButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) {
+        setState(() => _isPressed = false);
+        widget.onPressed();
+      },
+      onTapCancel: () => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.98 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        child: widget.child,
       ),
     );
   }

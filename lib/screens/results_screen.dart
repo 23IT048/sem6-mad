@@ -1,44 +1,105 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import '../utils/app_colors.dart';
+import '../services/storage_service.dart';
 import 'animation_screen.dart';
 
 class ResultsScreen extends StatefulWidget {
-  final File inputImage;
-  final File outputImage;
-  final bool fromHistory;
+  final String originalImagePath;
+  final String compressedImagePath;
+  final Map<String, dynamic>? existingRecord;
 
   const ResultsScreen({
     super.key,
-    required this.inputImage,
-    required this.outputImage,
-    this.fromHistory = false,
+    required this.originalImagePath,
+    required this.compressedImagePath,
+    this.existingRecord,
   });
 
   @override
   State<ResultsScreen> createState() => _ResultsScreenState();
 }
 
-class _ResultsScreenState extends State<ResultsScreen> {
+class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProviderStateMixin {
+  bool _isSaving = false;
+  bool _isSaved = false;
   bool _showOriginal = true;
+  int? _originalSize;
+  int? _compressedSize;
+  double? _compressionRatio;
+  late AnimationController _animationController;
 
-  Future<void> _saveImage() async {
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _animationController.forward();
+    _loadStats();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadStats() async {
+    if (widget.existingRecord != null) {
+      setState(() {
+        _originalSize = widget.existingRecord!['originalSize'];
+        _compressedSize = widget.existingRecord!['compressedSize'];
+        _compressionRatio = widget.existingRecord!['compressionRatio'];
+        _isSaved = true;
+      });
+    } else {
+      final originalSize = await StorageService.getFileSize(widget.originalImagePath);
+      final compressedSize = await StorageService.getFileSize(widget.compressedImagePath);
+      final ratio = ((originalSize - compressedSize) / originalSize * 100);
+
+      setState(() {
+        _originalSize = originalSize;
+        _compressedSize = compressedSize;
+        _compressionRatio = ratio;
+      });
+    }
+  }
+
+  Future<void> _saveResults() async {
+    if (_isSaved || _originalSize == null || _compressedSize == null) return;
+
+    setState(() => _isSaving = true);
+
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final path = '${directory.path}/compressed_$timestamp.jpg';
-      await widget.outputImage.copy(path);
-      
+      await StorageService.saveCompressionRecord(
+        originalPath: widget.originalImagePath,
+        compressedPath: widget.compressedImagePath,
+        originalSize: _originalSize!,
+        compressedSize: _compressedSize!,
+        compressionRatio: _compressionRatio!,
+      );
+
+      setState(() {
+        _isSaving = false;
+        _isSaved = true;
+      });
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Image saved successfully!')),
+          const SnackBar(
+            content: Text('✓ Compression saved successfully!'),
+            backgroundColor: AppColors.successGreen,
+            duration: Duration(seconds: 2),
+          ),
         );
       }
     } catch (e) {
+      setState(() => _isSaving = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving image: $e')),
+          SnackBar(content: Text('Error saving: $e')),
         );
       }
     }
@@ -49,180 +110,278 @@ class _ResultsScreenState extends State<ResultsScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => AnimationScreen(
-          inputImage: widget.inputImage,
-          onComplete: () => Navigator.pop(context),
+          inputImage: File(widget.compressedImagePath),
+          fromResults: true,
         ),
       ),
     );
   }
 
+  void _backToHome() {
+    Navigator.popUntil(context, (route) => route.isFirst);
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(2)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} MB';
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Results', style: TextStyle(color: Colors.white)),
-        backgroundColor: AppColors.primaryBlue,
-        leading: widget.fromHistory
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              )
-            : null,
+    return Container(
+      decoration: const BoxDecoration(gradient: AppColors.backgroundGradient),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text('Compression Results', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
+          ),
+          iconTheme: const IconThemeData(color: Colors.white),
+        ),
+        body: FadeTransition(
+          opacity: _animationController,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              children: [
+                _buildImageComparisonCard(),
+                const SizedBox(height: 24),
+                _buildStatsCard(),
+                const SizedBox(height: 24),
+                _buildActionButton(
+                  label: 'View Huffman Animation',
+                  icon: Icons.animation,
+                  gradient: AppColors.accentGradient,
+                  onPressed: _navigateToAnimation,
+                ),
+                const SizedBox(height: 16),
+                if (!_isSaved)
+                  _buildActionButton(
+                    label: _isSaving ? 'Saving...' : 'Save to History',
+                    icon: Icons.bookmark_rounded,
+                    gradient: AppColors.successGradient,
+                    onPressed: _isSaving ? null : _saveResults,
+                  )
+                else
+                  _buildSavedBadge(),
+                const SizedBox(height: 16),
+                _buildActionButton(
+                  label: 'Back to Home',
+                  icon: Icons.home_rounded,
+                  gradient: AppColors.primaryGradient,
+                  onPressed: _backToHome,
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    );
+  }
+
+  Widget _buildImageComparisonCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: AppColors.cardShadow,
+      ),
+      child: Column(
+        children: [
+          _buildToggleButtons(),
+          const SizedBox(height: 16),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: Container(
+              key: ValueKey(_showOriginal),
+              height: 300,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: AppColors.borderGray.withValues(alpha: 0.5), width: 2),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: Image.file(
+                  File(_showOriginal ? widget.originalImagePath : widget.compressedImagePath),
+                  fit: BoxFit.contain,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleButtons() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.borderGray.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Expanded(child: _buildToggleButton('Original', true)),
+          Expanded(child: _buildToggleButton('Compressed', false)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToggleButton(String label, bool isOriginal) {
+    final isSelected = _showOriginal == isOriginal;
+    return GestureDetector(
+      onTap: () => setState(() => _showOriginal = isOriginal),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: isSelected ? AppColors.cardShadow : null,
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: isSelected ? AppColors.primaryNavy : AppColors.mutedGray,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            fontSize: 15,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatsCard() {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: AppColors.primaryGradient,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: AppColors.buttonShadow,
+      ),
+      child: Column(
+        children: [
+          _buildStatRow('Original Size', _formatSize(_originalSize ?? 0)),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Divider(color: Colors.white24, height: 1),
+          ),
+          _buildStatRow('Compressed Size', _formatSize(_compressedSize ?? 0)),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Divider(color: Colors.white24, height: 1),
+          ),
+          _buildStatRow(
+            'Compression Ratio',
+            '${_compressionRatio?.toStringAsFixed(1) ?? '0'}%',
+            highlight: true,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatRow(String label, String value, {bool highlight = false}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w500),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: highlight ? AppColors.successGreen : Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButton({
+    required String label,
+    required IconData icon,
+    required LinearGradient gradient,
+    VoidCallback? onPressed,
+  }) {
+    return _AnimatedButton(
+      onPressed: onPressed ?? () {},
+      child: Container(
+        width: double.infinity,
+        height: 60,
+        decoration: BoxDecoration(
+          gradient: onPressed == null ? null : gradient,
+          color: onPressed == null ? AppColors.borderGray : null,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: onPressed == null ? null : AppColors.buttonShadow,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Comparison Card
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _buildToggleButton('Original', _showOriginal, () {
-                        setState(() => _showOriginal = true);
-                      }),
-                      const SizedBox(width: 12),
-                      _buildToggleButton('Compressed', !_showOriginal, () {
-                        setState(() => _showOriginal = false);
-                      }),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    height: 300,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.grey.shade300),
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.file(
-                        _showOriginal ? widget.inputImage : widget.outputImage,
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Stats Card
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Compression Statistics',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildStatRow('Original Size', '2.4 MB'),
-                  _buildStatRow('Compressed Size', '240 KB'),
-                  _buildStatRow('Compression Ratio', '10:1'),
-                  _buildStatRow('Space Saved', '90%'),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Action Buttons
-            ElevatedButton.icon(
-              onPressed: _navigateToAnimation,
-              icon: const Icon(Icons.play_circle_outline),
-              label: const Text('View Huffman Animation'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryBlue,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: _saveImage,
-              icon: const Icon(Icons.save),
-              label: const Text('Save Compressed Image'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.accentGreen,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.popUntil(context, (route) => route.isFirst);
-              },
-              icon: const Icon(Icons.home),
-              label: const Text('Back to Home'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.primaryBlue,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                side: const BorderSide(color: AppColors.primaryBlue),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-            ),
+            Icon(icon, color: Colors.white, size: 24),
+            const SizedBox(width: 12),
+            Text(label, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildToggleButton(String label, bool isActive, VoidCallback onTap) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isActive ? AppColors.primaryBlue : Colors.grey.shade200,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: isActive ? Colors.white : Colors.grey.shade700,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
+  Widget _buildSavedBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      decoration: BoxDecoration(
+        color: AppColors.successGreen.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(48),
+        border: Border.all(color: AppColors.successGreen.withValues(alpha: 0.3), width: 2),
+      ),
+      child: const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.check_circle_rounded, color: AppColors.successGreen, size: 24),
+          SizedBox(width: 12),
+          Text('Saved to History', style: TextStyle(color: AppColors.successGreen, fontWeight: FontWeight.w700, fontSize: 16)),
+        ],
       ),
     );
   }
+}
 
-  Widget _buildStatRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: TextStyle(fontSize: 14, color: Colors.grey.shade600)),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-        ],
+class _AnimatedButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onPressed;
+
+  const _AnimatedButton({required this.child, required this.onPressed});
+
+  @override
+  State<_AnimatedButton> createState() => _AnimatedButtonState();
+}
+
+class _AnimatedButtonState extends State<_AnimatedButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) {
+        setState(() => _isPressed = false);
+        widget.onPressed();
+      },
+      onTapCancel: () => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.98 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        child: widget.child,
       ),
     );
   }

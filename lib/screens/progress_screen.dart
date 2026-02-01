@@ -6,18 +6,19 @@ import 'animation_screen.dart';
 import 'results_screen.dart';
 
 class ProgressScreen extends StatefulWidget {
-  final File inputImage;
+  final String imagePath;
 
-  const ProgressScreen({super.key, required this.inputImage});
+  const ProgressScreen({super.key, required this.imagePath});
 
   @override
   State<ProgressScreen> createState() => _ProgressScreenState();
 }
 
-class _ProgressScreenState extends State<ProgressScreen> {
+class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProviderStateMixin {
   int _currentPhase = 0;
   bool _isProcessing = true;
   Timer? _timer;
+  late AnimationController _animationController;
 
   final List<String> _phases = [
     'Color Space Conversion',
@@ -30,6 +31,11 @@ class _ProgressScreenState extends State<ProgressScreen> {
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _animationController.forward();
     _startSimulation();
   }
 
@@ -52,8 +58,8 @@ class _ProgressScreenState extends State<ProgressScreen> {
           context,
           MaterialPageRoute(
             builder: (context) => ResultsScreen(
-              inputImage: widget.inputImage,
-              outputImage: widget.inputImage, // Same image for now
+              originalImagePath: widget.imagePath,
+              compressedImagePath: widget.imagePath,
             ),
           ),
         );
@@ -66,15 +72,15 @@ class _ProgressScreenState extends State<ProgressScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => AnimationScreen(
-          inputImage: widget.inputImage,
+          inputImage: File(widget.imagePath),
           onComplete: () {
             if (_isProcessing == false) {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
                   builder: (context) => ResultsScreen(
-                    inputImage: widget.inputImage,
-                    outputImage: widget.inputImage,
+                    originalImagePath: widget.imagePath,
+                    compressedImagePath: widget.imagePath,
                   ),
                 ),
               );
@@ -88,117 +94,157 @@ class _ProgressScreenState extends State<ProgressScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _animationController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Compression Progress', style: TextStyle(color: Colors.white)),
-        backgroundColor: AppColors.primaryBlue,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Image Preview
-            Container(
-              height: 200,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.file(widget.inputImage, fit: BoxFit.contain),
-              ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (!didPop) {
+          Navigator.pop(context, false);
+        }
+      },
+      child: Container(
+        decoration: const BoxDecoration(gradient: AppColors.backgroundGradient),
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: const Text('Compressing...', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
             ),
-            const SizedBox(height: 24),
-
-            // Progress Indicator
-            LinearProgressIndicator(
-              value: (_currentPhase + 1) / _phases.length,
-              backgroundColor: Colors.grey.shade200,
-              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.primaryBlue),
-              minHeight: 8,
+            iconTheme: const IconThemeData(color: Colors.white),
+          ),
+          body: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _buildImagePreview(),
+                const SizedBox(height: 24),
+                _buildProgressCard(),
+                const SizedBox(height: 24),
+                Expanded(child: _buildPhasesList()),
+                const SizedBox(height: 16),
+                _buildStatusText(),
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              'Phase ${_currentPhase + 1} of ${_phases.length}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 24),
-
-            // Phase Cards
-            Expanded(
-              child: ListView.builder(
-                itemCount: _phases.length,
-                itemBuilder: (context, index) {
-                  final isCompleted = index < _currentPhase;
-                  final isCurrent = index == _currentPhase;
-                  final isHuffman = index == 4;
-
-                  return _buildPhaseCard(
-                    _phases[index],
-                    index + 1,
-                    isCompleted,
-                    isCurrent,
-                    isHuffman,
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Status Text
-            Text(
-              _isProcessing ? 'Processing...' : 'Compression Complete!',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: _isProcessing ? AppColors.primaryBlue : AppColors.accentGreen,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildImagePreview() {
+    return Container(
+      height: 200,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: AppColors.cardShadow,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: Image.file(File(widget.imagePath), fit: BoxFit.contain),
+      ),
+    );
+  }
+
+  Widget _buildProgressCard() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: AppColors.cardShadow,
+      ),
+      child: Column(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: LinearProgressIndicator(
+              value: (_currentPhase + 1) / _phases.length,
+              backgroundColor: AppColors.borderGray,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accentBlue),
+              minHeight: 10,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Phase ${_currentPhase + 1} of ${_phases.length}',
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryNavy),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhasesList() {
+    return ListView.builder(
+      itemCount: _phases.length,
+      itemBuilder: (context, index) {
+        return TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.0, end: 1.0),
+          duration: Duration(milliseconds: 300 + (index * 50)),
+          curve: Curves.easeOut,
+          builder: (context, value, child) {
+            return Opacity(
+              opacity: value,
+              child: Transform.translate(
+                offset: Offset(0, 20 * (1 - value)),
+                child: child,
+              ),
+            );
+          },
+          child: _buildPhaseCard(
+            _phases[index],
+            index + 1,
+            index < _currentPhase,
+            index == _currentPhase,
+            index == 4,
+          ),
+        );
+      },
     );
   }
 
   Widget _buildPhaseCard(String title, int number, bool isCompleted, bool isCurrent, bool isHuffman) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isCurrent ? AppColors.primaryBlue : Colors.grey.shade300,
+          color: isCurrent ? AppColors.accentBlue : AppColors.borderGray.withValues(alpha: 0.5),
           width: isCurrent ? 2 : 1,
         ),
+        boxShadow: isCurrent ? AppColors.cardShadow : null,
       ),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              color: isCompleted ? AppColors.accentGreen : (isCurrent ? AppColors.primaryBlue : Colors.grey.shade300),
+              gradient: isCompleted 
+                  ? AppColors.successGradient 
+                  : (isCurrent ? AppColors.accentGradient : null),
+              color: isCompleted || isCurrent ? null : AppColors.borderGray,
               shape: BoxShape.circle,
             ),
             child: Center(
               child: isCompleted
-                  ? const Icon(Icons.check, color: Colors.white, size: 20)
+                  ? const Icon(Icons.check_rounded, color: Colors.white, size: 22)
                   : Text(
                       '$number',
                       style: TextStyle(
-                        color: isCurrent ? Colors.white : Colors.grey.shade600,
-                        fontWeight: FontWeight.bold,
+                        color: isCurrent ? Colors.white : AppColors.mutedGray,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
                       ),
                     ),
             ),
@@ -209,21 +255,73 @@ class _ProgressScreenState extends State<ProgressScreen> {
               title,
               style: TextStyle(
                 fontSize: 16,
-                fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                color: isCompleted ? AppColors.accentGreen : (isCurrent ? AppColors.primaryBlue : Colors.grey.shade600),
+                fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w500,
+                color: isCompleted ? AppColors.successGreen : (isCurrent ? AppColors.accentBlue : AppColors.mutedGray),
               ),
             ),
           ),
           if (isHuffman && isCurrent)
-            TextButton.icon(
+            _AnimatedButton(
               onPressed: _navigateToAnimation,
-              icon: const Icon(Icons.play_circle_outline, size: 20),
-              label: const Text('Animate'),
-              style: TextButton.styleFrom(
-                foregroundColor: AppColors.primaryBlue,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.accentBlue.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.play_circle_outline, size: 18, color: AppColors.accentBlue),
+                    SizedBox(width: 4),
+                    Text('Animate', style: TextStyle(color: AppColors.accentBlue, fontWeight: FontWeight.w600, fontSize: 13)),
+                  ],
+                ),
               ),
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStatusText() {
+    return Text(
+      _isProcessing ? 'Processing...' : 'Compression Complete!',
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: 18,
+        fontWeight: FontWeight.w700,
+        color: _isProcessing ? AppColors.accentBlue : AppColors.successGreen,
+      ),
+    );
+  }
+}
+
+class _AnimatedButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onPressed;
+
+  const _AnimatedButton({required this.child, required this.onPressed});
+
+  @override
+  State<_AnimatedButton> createState() => _AnimatedButtonState();
+}
+
+class _AnimatedButtonState extends State<_AnimatedButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) {
+        setState(() => _isPressed = false);
+        widget.onPressed();
+      },
+      onTapCancel: () => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.98 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        child: widget.child,
       ),
     );
   }

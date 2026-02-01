@@ -8,102 +8,97 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
   bool _showAnimations = true;
   bool _saveHistory = true;
   String _compressionQuality = 'Medium';
+  late AnimationController _animationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Settings', style: TextStyle(color: Colors.white)),
-        backgroundColor: AppColors.primaryBlue,
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          _buildSection('Display'),
-          _buildSwitchTile(
-            'Show Animations',
-            'Enable step-by-step visualization',
-            _showAnimations,
-            (value) => setState(() => _showAnimations = value),
+    return Container(
+      decoration: const BoxDecoration(gradient: AppColors.backgroundGradient),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text('Settings', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.white)),
+          flexibleSpace: Container(
+            decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
           ),
-          const SizedBox(height: 20),
-          
-          _buildSection('Storage'),
-          _buildSwitchTile(
-            'Save History',
-            'Keep track of previous compressions',
-            _saveHistory,
-            (value) => setState(() => _saveHistory = value),
+        ),
+        body: FadeTransition(
+          opacity: _animationController,
+          child: ListView(
+            padding: const EdgeInsets.all(20.0),
+            children: [
+              _buildSection('Display'),
+              _buildSwitchTile(
+                'Show Animations',
+                'Enable step-by-step visualization',
+                _showAnimations,
+                (value) => setState(() => _showAnimations = value),
+              ),
+              const SizedBox(height: 20),
+              
+              _buildSection('Storage'),
+              _buildSwitchTile(
+                'Save History',
+                'Keep track of previous compressions',
+                _saveHistory,
+                (value) => setState(() => _saveHistory = value),
+              ),
+              const SizedBox(height: 20),
+              
+              _buildSection('Compression'),
+              _buildQualityTile(),
+              const SizedBox(height: 20),
+              
+              _buildSection('About'),
+              _buildInfoTile('Version', '1.0.0'),
+              _buildInfoTile('Developer', 'JPEG-Lite Team'),
+              const SizedBox(height: 24),
+              
+              _buildClearButton(),
+            ],
           ),
-          const SizedBox(height: 20),
-          
-          _buildSection('Compression'),
-          _buildQualityTile(),
-          const SizedBox(height: 20),
-          
-          _buildSection('About'),
-          _buildInfoTile('Version', '1.0.0'),
-          _buildInfoTile('Developer', 'JPEG-Lite Team'),
-          const SizedBox(height: 20),
-          
-          ElevatedButton(
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => AlertDialog(
-                  title: const Text('Clear History'),
-                  content: const Text('Are you sure you want to clear all compression history?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('History cleared')),
-                        );
-                      },
-                      child: const Text('Clear'),
-                    ),
-                  ],
-                ),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-            child: const Text('Clear All History'),
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildSection(String title) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8.0),
+      padding: const EdgeInsets.only(bottom: 12.0, left: 4),
       child: Text(
         title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppColors.primaryNavy),
       ),
     );
   }
 
   Widget _buildSwitchTile(String title, String subtitle, bool value, Function(bool) onChanged) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: AppColors.cardShadow,
       ),
       child: Row(
         children: [
@@ -111,16 +106,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryNavy)),
                 const SizedBox(height: 4),
-                Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+                Text(subtitle, style: const TextStyle(fontSize: 14, color: AppColors.mutedGray)),
               ],
             ),
           ),
           Switch(
             value: value,
             onChanged: onChanged,
-            activeTrackColor: AppColors.primaryBlue,
+            activeTrackColor: AppColors.accentBlue,
           ),
         ],
       ),
@@ -129,28 +124,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildQualityTile() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: AppColors.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Compression Quality', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          DropdownButton<String>(
-            value: _compressionQuality,
-            isExpanded: true,
-            items: ['Low', 'Medium', 'High'].map((String value) {
-              return DropdownMenuItem<String>(value: value, child: Text(value));
-            }).toList(),
-            onChanged: (String? newValue) {
-              if (newValue != null) {
-                setState(() => _compressionQuality = newValue);
-              }
-            },
+          const Text('Compression Quality', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryNavy)),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: AppColors.borderGray.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: DropdownButton<String>(
+              value: _compressionQuality,
+              isExpanded: true,
+              underline: const SizedBox(),
+              items: ['Low', 'Medium', 'High'].map((String value) {
+                return DropdownMenuItem<String>(
+                  value: value,
+                  child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500)),
+                );
+              }).toList(),
+              onChanged: (String? newValue) {
+                if (newValue != null) {
+                  setState(() => _compressionQuality = newValue);
+                }
+              },
+            ),
           ),
         ],
       ),
@@ -159,19 +165,103 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildInfoTile(String label, String value) {
     return Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade200),
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: AppColors.cardShadow,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(fontSize: 16)),
-          Text(value, style: TextStyle(fontSize: 16, color: Colors.grey.shade600)),
+          Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: AppColors.primaryNavy)),
+          Text(value, style: const TextStyle(fontSize: 16, color: AppColors.mutedGray, fontWeight: FontWeight.w600)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildClearButton() {
+    return _AnimatedButton(
+      onPressed: () {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+            title: const Text('Clear History', style: TextStyle(fontWeight: FontWeight.w700)),
+            content: const Text('Are you sure you want to clear all compression history?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel', style: TextStyle(color: AppColors.mutedGray)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('History cleared')),
+                  );
+                },
+                child: const Text('Clear', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        );
+      },
+      child: Container(
+        width: double.infinity,
+        height: 60,
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.red.withValues(alpha: 0.3),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.delete_sweep_rounded, color: Colors.white, size: 24),
+            SizedBox(width: 12),
+            Text('Clear All History', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: Colors.white)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AnimatedButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onPressed;
+
+  const _AnimatedButton({required this.child, required this.onPressed});
+
+  @override
+  State<_AnimatedButton> createState() => _AnimatedButtonState();
+}
+
+class _AnimatedButtonState extends State<_AnimatedButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => setState(() => _isPressed = true),
+      onTapUp: (_) {
+        setState(() => _isPressed = false);
+        widget.onPressed();
+      },
+      onTapCancel: () => setState(() => _isPressed = false),
+      child: AnimatedScale(
+        scale: _isPressed ? 0.98 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        child: widget.child,
       ),
     );
   }

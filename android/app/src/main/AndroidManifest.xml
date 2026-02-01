@@ -1,8 +1,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permissions for different Android versions -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    
+    <!-- For Android 12 and below -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+    
+    <!-- For Android 13+ (API 33+) -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    
+    <!-- Camera permission -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    
     <application
-        android:label="my_app"
+        android:label="JPEG-Lite"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

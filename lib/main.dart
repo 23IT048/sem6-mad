@@ -16,13 +16,14 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'JPEG-Lite Visualizer',
       theme: ThemeData(
-        primaryColor: AppColors.primaryBlue,
+        primaryColor: AppColors.primaryNavy,
         scaffoldBackgroundColor: AppColors.lightBackground,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.primaryBlue,
-          primary: AppColors.primaryBlue,
+          seedColor: AppColors.primaryNavy,
+          primary: AppColors.primaryNavy,
         ),
         useMaterial3: true,
+        fontFamily: 'System',
       ),
       home: const MainNavigator(),
       debugShowCheckedModeBanner: false,
@@ -50,16 +51,42 @@ class _MainNavigatorState extends State<MainNavigator> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _screens[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        selectedItemColor: AppColors.primaryBlue,
-        unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'History'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Settings'),
-        ],
+      bottomNavigationBar: Container(
+        margin: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(48),
+          boxShadow: AppColors.cardShadow,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(48),
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: (index) => setState(() => _currentIndex = index),
+            selectedItemColor: AppColors.primaryNavy,
+            unselectedItemColor: AppColors.mutedGray,
+            backgroundColor: Colors.white,
+            elevation: 0,
+            selectedFontSize: 13,
+            unselectedFontSize: 12,
+            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600),
+            type: BottomNavigationBarType.fixed,
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.home_rounded), 
+                label: 'Home',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.history_rounded), 
+                label: 'History',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.settings_rounded), 
+                label: 'Settings',
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
