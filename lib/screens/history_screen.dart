@@ -25,11 +25,17 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
       vsync: this,
     );
     _animationController.forward();
+    StorageService.historyChangeNotifier.addListener(_onHistoryUpdated);
+    _loadHistory();
+  }
+
+  void _onHistoryUpdated() {
     _loadHistory();
   }
 
   @override
   void dispose() {
+    StorageService.historyChangeNotifier.removeListener(_onHistoryUpdated);
     _animationController.dispose();
     super.dispose();
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'screens/animated_splash_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
@@ -25,7 +26,11 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
         fontFamily: 'System',
       ),
-      home: const MainNavigator(),
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const AnimatedSplashScreen(),
+        '/main': (context) => const MainNavigator(),
+      },
       debugShowCheckedModeBanner: false,
     );
   }

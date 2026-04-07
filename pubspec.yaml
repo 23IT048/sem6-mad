@@ -10,6 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.8
+  image: ^4.2.0
   image_picker: ^1.0.7
   shared_preferences: ^2.2.2
   path_provider: ^2.1.2
@@ -23,3 +24,12 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/images/ios/jpeglite_logo.png
+    - assets/images/ios/jpeglite_logo@2x.png
+    - assets/images/ios/jpeglite_logo@3x.png
+    - assets/images/android/drawable-mdpi/
+    - assets/images/android/drawable-hdpi/
+    - assets/images/android/drawable-xhdpi/
+    - assets/images/android/drawable-xxhdpi/
+    - assets/images/android/drawable-xxxhdpi/

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/app_colors.dart';
+import '../services/storage_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -10,8 +11,10 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProviderStateMixin {
   bool _showAnimations = true;
-  bool _saveHistory = true;
+  bool _saveHistory = false;
   String _compressionQuality = 'Medium';
+  String _outputDirectory = '';
+  bool _isLoadingSettings = true;
   late AnimationController _animationController;
 
   @override
@@ -22,6 +25,115 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
       vsync: this,
     );
     _animationController.forward();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final settings = await StorageService.loadSettings();
+    final outputPath = await StorageService.getOutputDirectoryPath();
+
+    if (!mounted) return;
+    setState(() {
+      _showAnimations = settings['showAnimations'] as bool;
+      _saveHistory = settings['saveHistory'] as bool;
+      _compressionQuality = settings['compressionQuality'] as String;
+      _outputDirectory = outputPath;
+      _isLoadingSettings = false;
+    });
+  }
+
+  Future<void> _setShowAnimations(bool value) async {
+    setState(() => _showAnimations = value);
+    await StorageService.setShowAnimations(value);
+  }
+
+  Future<void> _setSaveHistory(bool value) async {
+    if (value) {
+      final granted = await StorageService.requestHistoryStoragePermission();
+      if (!granted) {
+        if (!mounted) return;
+        setState(() => _saveHistory = false);
+        await StorageService.setSaveHistory(false);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Storage permission denied. Save History remains off.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+    }
+
+    setState(() => _saveHistory = value);
+    await StorageService.setSaveHistory(value);
+  }
+
+  Future<void> _setCompressionQuality(String quality) async {
+    setState(() => _compressionQuality = quality);
+    await StorageService.setCompressionQuality(quality);
+  }
+
+  Future<void> _showOutputDirectoryDialog() async {
+    final controller = TextEditingController(text: _outputDirectory);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: const Text('Set Output Folder', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: 'Enter full folder path',
+            border: OutlineInputBorder(),
+          ),
+          minLines: 1,
+          maxLines: 2,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.mutedGray)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Save', style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+
+    if (result == null) return;
+
+    try {
+      await StorageService.setOutputDirectory(result);
+      final outputPath = await StorageService.getOutputDirectoryPath();
+      if (!mounted) return;
+      setState(() => _outputDirectory = outputPath);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Output folder updated')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to set folder: $e')),
+      );
+    }
+  }
+
+  Future<void> _resetOutputDirectory() async {
+    await StorageService.setOutputDirectory(null);
+    final outputPath = await StorageService.getOutputDirectoryPath();
+    if (!mounted) return;
+    setState(() => _outputDirectory = outputPath);
+  }
+
+  Future<void> _clearHistory() async {
+    await StorageService.clearCompressionHistory();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('History cleared')),
+    );
   }
 
   @override
@@ -42,7 +154,9 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
             decoration: const BoxDecoration(gradient: AppColors.primaryGradient),
           ),
         ),
-        body: FadeTransition(
+        body: _isLoadingSettings
+            ? const Center(child: CircularProgressIndicator())
+            : FadeTransition(
           opacity: _animationController,
           child: ListView(
             padding: const EdgeInsets.all(20.0),
@@ -52,7 +166,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 'Show Animations',
                 'Enable step-by-step visualization',
                 _showAnimations,
-                (value) => setState(() => _showAnimations = value),
+                _setShowAnimations,
               ),
               const SizedBox(height: 20),
               
@@ -61,8 +175,11 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
                 'Save History',
                 'Keep track of previous compressions',
                 _saveHistory,
-                (value) => setState(() => _saveHistory = value),
+                _setSaveHistory,
               ),
+              const SizedBox(height: 20),
+
+              _buildStoragePathTile(),
               const SizedBox(height: 20),
               
               _buildSection('Compression'),
@@ -153,7 +270,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               }).toList(),
               onChanged: (String? newValue) {
                 if (newValue != null) {
-                  setState(() => _compressionQuality = newValue);
+                  _setCompressionQuality(newValue);
                 }
               },
             ),
@@ -182,6 +299,49 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
     );
   }
 
+  Widget _buildStoragePathTile() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        gradient: AppColors.cardGradient,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: AppColors.cardShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'History Folder',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: AppColors.primaryNavy),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _outputDirectory,
+            style: const TextStyle(fontSize: 13, color: AppColors.mutedGray),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _showOutputDirectoryDialog,
+                  child: const Text('Change Folder'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _resetOutputDirectory,
+                  child: const Text('Use Default'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildClearButton() {
     return _AnimatedButton(
       onPressed: () {
@@ -199,9 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen> with SingleTickerProvid
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('History cleared')),
-                  );
+                  _clearHistory();
                 },
                 child: const Text('Clear', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
               ),

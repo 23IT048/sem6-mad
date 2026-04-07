@@ -8,12 +8,14 @@ class ResultsScreen extends StatefulWidget {
   final String originalImagePath;
   final String compressedImagePath;
   final Map<String, dynamic>? existingRecord;
+  final bool autoSavedToHistory;
 
   const ResultsScreen({
     super.key,
     required this.originalImagePath,
     required this.compressedImagePath,
     this.existingRecord,
+    this.autoSavedToHistory = false,
   });
 
   @override
@@ -24,9 +26,11 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   bool _isSaving = false;
   bool _isSaved = false;
   bool _showOriginal = true;
+  bool _showAnimations = true;
   int? _originalSize;
   int? _compressedSize;
   double? _compressionRatio;
+  bool _saveHistoryEnabled = false;
   late AnimationController _animationController;
 
   @override
@@ -47,12 +51,17 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
   }
 
   Future<void> _loadStats() async {
+    final saveHistoryEnabled = await StorageService.getSaveHistory();
+    final showAnimations = await StorageService.getShowAnimations();
+
     if (widget.existingRecord != null) {
       setState(() {
         _originalSize = widget.existingRecord!['originalSize'];
         _compressedSize = widget.existingRecord!['compressedSize'];
         _compressionRatio = widget.existingRecord!['compressionRatio'];
         _isSaved = true;
+        _saveHistoryEnabled = true;
+        _showAnimations = showAnimations;
       });
     } else {
       final originalSize = await StorageService.getFileSize(widget.originalImagePath);
@@ -63,12 +72,15 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
         _originalSize = originalSize;
         _compressedSize = compressedSize;
         _compressionRatio = ratio;
+        _saveHistoryEnabled = saveHistoryEnabled;
+        _isSaved = widget.autoSavedToHistory;
+        _showAnimations = showAnimations;
       });
     }
   }
 
   Future<void> _saveResults() async {
-    if (_isSaved || _originalSize == null || _compressedSize == null) return;
+    if (_isSaved || _originalSize == null || _compressedSize == null || !_saveHistoryEnabled) return;
 
     setState(() => _isSaving = true);
 
@@ -150,19 +162,27 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
                 const SizedBox(height: 24),
                 _buildStatsCard(),
                 const SizedBox(height: 24),
-                _buildActionButton(
-                  label: 'View Huffman Animation',
-                  icon: Icons.animation,
-                  gradient: AppColors.accentGradient,
-                  onPressed: _navigateToAnimation,
-                ),
-                const SizedBox(height: 16),
-                if (!_isSaved)
+                if (_showAnimations) ...[
                   _buildActionButton(
-                    label: _isSaving ? 'Saving...' : 'Save to History',
+                    label: 'View Huffman Animation',
+                    icon: Icons.animation,
+                    gradient: AppColors.accentGradient,
+                    onPressed: _navigateToAnimation,
+                  ),
+                  const SizedBox(height: 16),
+                ],
+                if (_saveHistoryEnabled)
+                  _buildSavedBadge(
+                    label: _isSaved ? 'Auto-saved to History' : 'Save History Enabled',
+                  )
+                else if (!_isSaved)
+                  _buildActionButton(
+                    label: !_saveHistoryEnabled
+                        ? 'Enable Save History in Settings'
+                        : (_isSaving ? 'Saving...' : 'Save to History'),
                     icon: Icons.bookmark_rounded,
-                    gradient: AppColors.successGradient,
-                    onPressed: _isSaving ? null : _saveResults,
+                    gradient: _saveHistoryEnabled ? AppColors.successGradient : AppColors.primaryGradient,
+                    onPressed: (_isSaving || !_saveHistoryEnabled) ? null : _saveResults,
                   )
                 else
                   _buildSavedBadge(),
@@ -336,7 +356,7 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildSavedBadge() {
+  Widget _buildSavedBadge({String label = 'Saved to History'}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
@@ -344,12 +364,12 @@ class _ResultsScreenState extends State<ResultsScreen> with SingleTickerProvider
         borderRadius: BorderRadius.circular(48),
         border: Border.all(color: AppColors.successGreen.withValues(alpha: 0.3), width: 2),
       ),
-      child: const Row(
+      child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.check_circle_rounded, color: AppColors.successGreen, size: 24),
-          SizedBox(width: 12),
-          Text('Saved to History', style: TextStyle(color: AppColors.successGreen, fontWeight: FontWeight.w700, fontSize: 16)),
+          const Icon(Icons.check_circle_rounded, color: AppColors.successGreen, size: 24),
+          const SizedBox(width: 12),
+          Text(label, style: const TextStyle(color: AppColors.successGreen, fontWeight: FontWeight.w700, fontSize: 16)),
         ],
       ),
     );

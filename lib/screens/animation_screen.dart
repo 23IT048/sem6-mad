@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'dart:math';
 import '../utils/app_colors.dart';
 
-class AnimationScreen extends StatelessWidget {
+class AnimationScreen extends StatefulWidget {
   final File inputImage;
   final VoidCallback? onComplete;
   final bool fromResults;
@@ -13,6 +14,33 @@ class AnimationScreen extends StatelessWidget {
     this.onComplete,
     this.fromResults = false,
   });
+
+  @override
+  State<AnimationScreen> createState() => _AnimationScreenState();
+}
+
+class _AnimationScreenState extends State<AnimationScreen> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final List<double> _seededValues;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
+
+    final seed = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final random = Random(seed);
+    _seededValues = List.generate(20, (_) => 0.2 + random.nextDouble() * 0.8);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,12 +96,41 @@ class AnimationScreen extends StatelessWidget {
                         style: TextStyle(fontSize: 15, color: AppColors.mutedGray, height: 1.5),
                         textAlign: TextAlign.center,
                       ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        height: 90,
+                        child: AnimatedBuilder(
+                          animation: _controller,
+                          builder: (context, _) {
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: List.generate(_seededValues.length, (index) {
+                                final phase = (_controller.value + index / _seededValues.length) % 1.0;
+                                final animatedHeight = 14 + (64 * _seededValues[index] * (0.5 + phase / 2));
+
+                                return Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                                    child: Container(
+                                      height: animatedHeight,
+                                      decoration: BoxDecoration(
+                                        color: AppColors.accentBlue.withValues(alpha: 0.18 + 0.5 * phase),
+                                        borderRadius: BorderRadius.circular(5),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
+                            );
+                          },
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'Animation Placeholder',
+                  'Abstract bit-flow simulation',
                   style: TextStyle(fontSize: 16, color: AppColors.mutedGray.withValues(alpha: 0.7), fontWeight: FontWeight.w500),
                 ),
               ],

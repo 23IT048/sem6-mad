@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'dart:async';
 import '../utils/app_colors.dart';
+import '../services/storage_service.dart';
+import '../services/jpeg_compression_service.dart';
 import 'animation_screen.dart';
 import 'results_screen.dart';
 
@@ -17,15 +20,24 @@ class ProgressScreen extends StatefulWidget {
 class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProviderStateMixin {
   int _currentPhase = 0;
   bool _isProcessing = true;
-  Timer? _timer;
+  bool _showAnimations = true;
+  String? _compressedImagePath;
+  bool _autoSavedHistory = false;
+  Timer? _phaseTimer;
   late AnimationController _animationController;
 
   final List<String> _phases = [
+    'Input Image',
     'Color Space Conversion',
-    'Chroma Subsampling',
+    'Gaussian Filtering',
+    'Spatial Downsampling',
+    'Block Splitting',
     'DCT Transform',
     'Quantization',
+    'Zig-Zag Ordering',
+    'Run-Length Encoding',
     'Huffman Coding',
+    'File Construction',
   ];
 
   @override
@@ -36,30 +48,96 @@ class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProvid
       vsync: this,
     );
     _animationController.forward();
-    _startSimulation();
-  }
-
-  void _startSimulation() {
-    _timer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      if (_currentPhase < _phases.length - 1) {
-        setState(() => _currentPhase++);
-      } else {
-        timer.cancel();
-        setState(() => _isProcessing = false);
-        _navigateToResults();
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _startCompression();
     });
   }
 
+  Future<void> _startCompression() async {
+    final showAnimations = await StorageService.getShowAnimations();
+    final compressionLevel = await StorageService.getCompressionQuality();
+    final shouldSaveHistory = await StorageService.getSaveHistory();
+
+    if (!mounted) return;
+    setState(() => _showAnimations = showAnimations);
+
+    _phaseTimer = Timer.periodic(const Duration(milliseconds: 550), (timer) {
+      if (!_isProcessing || !mounted) {
+        timer.cancel();
+        return;
+      }
+
+      setState(() {
+        if (_currentPhase < _phases.length - 2) {
+          _currentPhase++;
+        }
+      });
+    });
+
+    try {
+      final resultMap = await compute(
+        compressImageInBackground,
+        {
+          'imagePath': widget.imagePath,
+          'compressionLevel': compressionLevel,
+        },
+      );
+
+      final jpegBytes = List<int>.from(resultMap['jpegBytes'] as List<dynamic>);
+      final directories = await StorageService.getAppDirectories();
+      final compressedDir = directories['compressed']!;
+      final outputPath =
+          '${compressedDir.path}/${StorageService.generateFilename()}';
+      final outputFile = File(outputPath);
+      await outputFile.writeAsBytes(jpegBytes, flush: true);
+
+      if (shouldSaveHistory) {
+        final originalSize = await StorageService.getFileSize(widget.imagePath);
+        final compressedSize = await StorageService.getFileSize(outputPath);
+        final ratio = ((originalSize - compressedSize) / originalSize * 100);
+        await StorageService.saveCompressionRecord(
+          originalPath: widget.imagePath,
+          compressedPath: outputPath,
+          originalSize: originalSize,
+          compressedSize: compressedSize,
+          compressionRatio: ratio,
+        );
+      }
+
+      if (!mounted) return;
+      _phaseTimer?.cancel();
+      setState(() {
+        _currentPhase = _phases.length - 1;
+        _isProcessing = false;
+        _compressedImagePath = outputPath;
+        _autoSavedHistory = shouldSaveHistory;
+      });
+
+      await Future.delayed(const Duration(milliseconds: 800));
+      _navigateToResults();
+    } catch (e) {
+      if (!mounted) return;
+      _phaseTimer?.cancel();
+      setState(() => _isProcessing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Compression failed: $e')),
+      );
+      Navigator.pop(context, false);
+    }
+  }
+
   void _navigateToResults() {
-    Future.delayed(const Duration(seconds: 1), () {
+    if (_compressedImagePath == null) return;
+
+    Future.delayed(const Duration(milliseconds: 500), () {
       if (mounted) {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
             builder: (context) => ResultsScreen(
               originalImagePath: widget.imagePath,
-              compressedImagePath: widget.imagePath,
+              compressedImagePath: _compressedImagePath!,
+              autoSavedToHistory: _autoSavedHistory,
             ),
           ),
         );
@@ -74,13 +152,14 @@ class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProvid
         builder: (context) => AnimationScreen(
           inputImage: File(widget.imagePath),
           onComplete: () {
-            if (_isProcessing == false) {
+            if (!_isProcessing && _compressedImagePath != null) {
               Navigator.pushReplacement(
                 context,
                 MaterialPageRoute(
                   builder: (context) => ResultsScreen(
                     originalImagePath: widget.imagePath,
-                    compressedImagePath: widget.imagePath,
+                    compressedImagePath: _compressedImagePath!,
+                    autoSavedToHistory: _autoSavedHistory,
                   ),
                 ),
               );
@@ -93,7 +172,7 @@ class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProvid
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _phaseTimer?.cancel();
     _animationController.dispose();
     super.dispose();
   }
@@ -140,15 +219,46 @@ class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProvid
 
   Widget _buildImagePreview() {
     return Container(
-      height: 200,
+      height: 240,
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(28),
         boxShadow: AppColors.cardShadow,
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: Image.file(File(widget.imagePath), fit: BoxFit.contain),
+      child: Column(
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: Image.file(File(widget.imagePath), fit: BoxFit.contain),
+            ),
+          ),
+          if (_showAnimations) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerRight,
+              child: _AnimatedButton(
+                onPressed: _navigateToAnimation,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.accentBlue.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.play_circle_outline, size: 18, color: AppColors.accentBlue),
+                      SizedBox(width: 4),
+                      Text('Animation', style: TextStyle(color: AppColors.accentBlue, fontWeight: FontWeight.w600, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -166,7 +276,9 @@ class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProvid
           ClipRRect(
             borderRadius: BorderRadius.circular(12),
             child: LinearProgressIndicator(
-              value: (_currentPhase + 1) / _phases.length,
+                value: _isProcessing
+                  ? (_currentPhase + 1).clamp(1, _phases.length) / _phases.length
+                  : 1,
               backgroundColor: AppColors.borderGray,
               valueColor: const AlwaysStoppedAnimation<Color>(AppColors.accentBlue),
               minHeight: 10,
@@ -204,14 +316,13 @@ class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProvid
             index + 1,
             index < _currentPhase,
             index == _currentPhase,
-            index == 4,
           ),
         );
       },
     );
   }
 
-  Widget _buildPhaseCard(String title, int number, bool isCompleted, bool isCurrent, bool isHuffman) {
+  Widget _buildPhaseCard(String title, int number, bool isCompleted, bool isCurrent) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(18),
@@ -260,24 +371,6 @@ class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProvid
               ),
             ),
           ),
-          if (isHuffman && isCurrent)
-            _AnimatedButton(
-              onPressed: _navigateToAnimation,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.accentBlue.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.play_circle_outline, size: 18, color: AppColors.accentBlue),
-                    SizedBox(width: 4),
-                    Text('Animate', style: TextStyle(color: AppColors.accentBlue, fontWeight: FontWeight.w600, fontSize: 13)),
-                  ],
-                ),
-              ),
-            ),
         ],
       ),
     );

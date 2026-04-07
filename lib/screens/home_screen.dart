@@ -69,7 +69,10 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware, SingleTickerPr
       
       if (pickedFile != null) {
         try {
-          final originalPath = await StorageService.copyOriginalImage(pickedFile.path);
+          final shouldSaveHistory = await StorageService.getSaveHistory();
+          final originalPath = shouldSaveHistory
+              ? await StorageService.copyOriginalImage(pickedFile.path)
+              : pickedFile.path;
           
           setState(() {
             _selectedImage = File(originalPath);
@@ -179,7 +182,14 @@ class _HomeScreenState extends State<HomeScreen> with RouteAware, SingleTickerPr
               color: AppColors.accentBlue.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.compress, size: 48, color: AppColors.accentBlue),
+            child: Image.asset(
+              'assets/images/ios/jpeglite_logo.png',
+              width: 56,
+              height: 56,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) =>
+                  const Icon(Icons.compress, size: 48, color: AppColors.accentBlue),
+            ),
           ),
           const SizedBox(height: 16),
           const Text(
